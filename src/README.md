@@ -2,6 +2,20 @@
 
 Code for a natural language inference (NLI) system. That is, given two sentences--a premise and a hypothesis, MonaLog outputs the inference relation from the premise to the hypothesis: `entailment`, `neutral` or `contradiction`.
 
+## Setup
+
+```
+pip3 install -r requirements.txt
+python3 -m spacy download en_core_web_sm
+python3 -m spacy download en_core_web_lg
+```
+
+Also needed:
+
+- [depccg](https://github.com/masashi-y/depccg) (Linux) or [eascyccg](https://github.com/mikelewis0/easyccg) (macOS)
+- [ccg2lambda](https://github.com/mynlp/ccg2lambda)
+- allennlp==0.9.0
+
 ## pipeline
 
 `premise as raw sentence` --> `CCG parse tree` --> `polarized sentence with arrows` --> 

@@ -1,0 +1,2 @@
+stanfordcorenlp==3.9.1
+wordfreq==2.4.2
