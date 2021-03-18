@@ -1,2 +1,4 @@
 stanfordcorenlp==3.9.1
 wordfreq==2.4.2
+pattern==3.6.0
+spacy==3.0.5

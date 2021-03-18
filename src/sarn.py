@@ -78,11 +78,7 @@ def main():
     args = parser.parse_args()
     # -------------------------------------
 
-    if args.start and args.end:
-        args.sick_id = list(range(args.start, args.end + 1))
-
     solver = Solver(
-        args.id,
         args.n_rep,
         args.print_k,
         args.gen_inf,
@@ -94,8 +90,7 @@ def main():
 
 
 class Solver:
-    def __init__(self, id, n_rep, print_k, gen_inf, pred_log, backward):
-        self.id = id
+    def __init__(self, n_rep, print_k, gen_inf, pred_log, backward):
         self.n_rep = n_rep
         self.print_k = print_k
         self.p2a = P2A_transformer(spacy.load("en_core_web_sm"))
@@ -111,25 +106,27 @@ class Solver:
     def P_idx(self, id):
         """ return idx of P """
         if self.reverse_P_H:
-            return self.sick2uniq[id]["H"]
-        return self.sick2uniq[id]["P"]
+            return id * 2 + 1
+        return id * 2
 
-    def H_idx(self, sick_id):
+    def H_idx(self, id):
         """ return idx of H in sick2uniq """
         if self.reverse_P_H:
-            return self.sick2uniq[sick_id]["P"]
-        return self.sick2uniq[sick_id]["H"]
+            return id * 2
+        return id * 2 + 1
 
     def solve(self):
         start_time = time.time()
 
-        trees = CCGtrees(fn_log="sick_uniq.raw.tok.preprocess.log")
+        trees = CCGtrees(fn_log="med_adjectives.tok.preprocess.log")
 
         # read parsed trees from different parsers
-        # trees.readEasyccgStr("sick_uniq.raw.easyccg.parsed.txt")
-        trees.readEasyccgStr("sick_uniq.raw.depccg.parsed.txt")
+        trees.readEasyccgStr("med_adjectives.easyccg.parsed.txt")
+        # trees.readEasyccgStr("sick_uniq.raw.depccg.parsed.txt")
 
-        self.solveSick_helper(sick_ids, trees)
+        ids = list(range(0, 10))
+
+        self.solve_helper(ids, trees)
 
         print("\n\n--- %s seconds ---" % (time.time() - start_time))
 
@@ -137,30 +134,12 @@ class Solver:
         """ ids: a list of ids to solve """
         y_pred = []
 
-        fout = None
-        save_sents = False
-        # save the polarized trees to later inspection
-        if save_sents:
-            fout = open("sick_trees_polarized.csv", "w")
-
         for id_to_solve in ids:
-            # only print P and H
-            # ans = self.solveSick_one(id_to_solve, trees, reverse=False, fout=fout)
-            # continue
-
-            # assume all the "U" can be correctly solved
-            # if self.ANSWERS[id_to_solve] == "U":
-            #     y_pred.append("U")
-            #     continue
-            ans = self.map_ans(
-                self.solve_one(id_to_solve, trees, reverse=False, fout=fout)
-            )
+            ans = self.solve_one(id_to_solve, trees, reverse=False)
             # if the ans is "U", try going from hypothesis to premise, see if get "C"
             if not self.gen_inf:  # if not only generate infs and contras
                 if ans == "U":
-                    ans_rev = self.map_ans(
-                        self.solveSick_one(id_to_solve, trees, reverse=True, fout=fout)
-                    )
+                    ans_rev = self.solve_one(id_to_solve, trees, reverse=True)
                     if ans_rev in [
                         "C",
                         "E_pass",
@@ -172,16 +151,10 @@ class Solver:
             if self.pred_log:
                 self.pred_logger.info("{}\t{}".format(id_to_solve, ans))
 
-        y_true = [self.ANSWERS[i] for i in sick_ids]
         print("\ny_pred:", y_pred)
-        print("y_true:", y_true)
-        print("acc:")
-        print(self.accuracy(sick_ids, y_pred, y_true))
-        if save_sents:
-            fout.close()
 
-    def solve_one(self, id_to_solve, trees, reverse=False, fout=None):
-        """solve problem #id
+    def solve_one(self, id_to_solve, trees, reverse=False):
+        """solve problem
         steps:
             1. read in parsed Ps and H
             2. initialize knowledge base K, update K when reading in Ps and H
@@ -290,44 +263,7 @@ class Solver:
         # make decision
         print("\n*** decision ***")
         print("y_pred:", ans)
-        print("y_true:", self.ANSWERS[id_to_solve])
 
-        printOut = False
-        truth = self.ANSWERS[id_to_solve]
-        if not reverse and truth == "E" and ans != "E":
-            printOut = True
-        if truth == "C" and ans != "C":
-            printOut = True
-
-        if fout and printOut:
-            myformat_rev = "{}_r\t{}\t{}\t{}\t{}\n"
-            myformat = "{}\t{}\t{}\t{}\t{}\n"
-            if reverse:
-                fout.write(
-                    myformat_rev.format(
-                        id_to_solve,
-                        P.printSent_raw(),
-                        H.printSent_raw_no_pol(),
-                        self.ANSWERS[id_to_solve],
-                        ans,
-                    )
-                )
-            else:
-                fout.write(
-                    myformat.format(
-                        id_to_solve,
-                        P.printSent_raw(),
-                        H.printSent_raw_no_pol(),
-                        self.ANSWERS[id_to_solve],
-                        ans,
-                    )
-                )
-
-        return ans
-
-    def map_ans(self, ans):
-        """ change errors to Neutral """
-        # if ans.startswith("Error"): return "U"
         return ans
 
 
