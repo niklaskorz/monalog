@@ -6,7 +6,6 @@ import argparse, time
 from infer import SentenceBase, Knowledge
 from getMono import CCGtrees, ErrorCCGtree, ErrorCompareSemCat
 from sklearn.metrics import confusion_matrix
-import sick_ans
 import spacy
 from pass2act import P2A_transformer
 import mywordnet
@@ -37,16 +36,6 @@ def main():
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "-id",
-        dest="sick_id",
-        type=str,
-        nargs="+",
-        default=["all"],
-        help='ID of the sick problem to solve. E.g. 1, 23. If "trial", then '
-        "try all cases of trial that are E or C "
-        "[default: %(default)s]",
-    )
-    parser.add_argument(
         "-r",
         dest="n_rep",
         type=int,
@@ -70,20 +59,6 @@ def main():
         help="if -g, generate infs, neutrals and contras, do not solve the problems [default: %(default)s]",
     )
     parser.add_argument(
-        "-s",
-        dest="start",
-        type=int,
-        default=None,
-        help="start of id to test [default: %(default)s]",
-    )
-    parser.add_argument(
-        "-e",
-        dest="end",
-        type=int,
-        default=None,
-        help="end of id to test [default: %(default)s]",
-    )
-    parser.add_argument(
         "-l",
         dest="pred_log",
         action="store_const",
@@ -103,34 +78,26 @@ def main():
     args = parser.parse_args()
     # -------------------------------------
 
-    sick2uniq = sick_ans.sick2uniq
-
     if args.start and args.end:
         args.sick_id = list(range(args.start, args.end + 1))
 
-    solver = SICK_solver(
-        args.sick_id,
+    solver = Solver(
+        args.id,
         args.n_rep,
         args.print_k,
-        sick2uniq,
         args.gen_inf,
         args.pred_log,
         args.backward,
     )
 
-    solver.solveSick()
+    solver.solve()
 
 
-class SICK_solver:
-    def __init__(self, sick_id, n_rep, print_k, sick2uniq, gen_inf, pred_log, backward):
-        self.sick_id = sick_id
+class Solver:
+    def __init__(self, id, n_rep, print_k, gen_inf, pred_log, backward):
+        self.id = id
         self.n_rep = n_rep
         self.print_k = print_k
-        self.sick2uniq = sick2uniq
-        self.ANSWERS = sick_ans.ANSWERS_new  # or sick_ans.ANSWERS
-        # fix ANSWERS
-        for idx in sick_ans.ANSWERS_HU:
-            self.ANSWERS[idx] = sick_ans.ANSWERS_HU[idx]
         self.p2a = P2A_transformer(spacy.load("en_core_web_sm"))
         self.gen_inf = gen_inf
         self.nlp = spacy.load("en_core_web_lg")  # make sure to use larger model!
@@ -141,11 +108,11 @@ class SICK_solver:
             )
         self.reverse_P_H = backward  # do backward inference
 
-    def P_idx(self, sick_id):
-        """ return idx of P in sick2uniq """
+    def P_idx(self, id):
+        """ return idx of P """
         if self.reverse_P_H:
-            return self.sick2uniq[sick_id]["H"]
-        return self.sick2uniq[sick_id]["P"]
+            return self.sick2uniq[id]["H"]
+        return self.sick2uniq[id]["P"]
 
     def H_idx(self, sick_id):
         """ return idx of H in sick2uniq """
@@ -153,7 +120,7 @@ class SICK_solver:
             return self.sick2uniq[sick_id]["P"]
         return self.sick2uniq[sick_id]["H"]
 
-    def solveSick(self):
+    def solve(self):
         start_time = time.time()
 
         trees = CCGtrees(fn_log="sick_uniq.raw.tok.preprocess.log")
@@ -162,44 +129,12 @@ class SICK_solver:
         # trees.readEasyccgStr("sick_uniq.raw.easyccg.parsed.txt")
         trees.readEasyccgStr("sick_uniq.raw.depccg.parsed.txt")
 
-        # trials
-        if self.sick_id[0] == "trial":
-            sick_ids = sick_ans.ids_trial_E_C  # ids_trial_E_C
-            sick_ids = sick_ans.ids_trial
-        elif self.sick_id[0] == "wrongs":
-            sick_ids = sick_ans.ids_wrongs_U_test
-        elif self.sick_id[0] == "trial_c":
-            sick_ids = sick_ans.ids_trial_C
-        elif self.sick_id[0] == "trial_e":
-            sick_ids = sick_ans.ids_trial_E
-
-        # test on train data
-        elif self.sick_id[0] == "train":
-            sick_ids = sick_ans.ids_train[:1000]
-
-        # test on test
-        elif self.sick_id[0] == "test":
-            sick_ids = sick_ans.ids_test[:]
-
-        # test on one word diff
-        elif self.sick_id[0] == "onediff":
-            ids_one_diff = set(sick_ans.ids_one_diff)
-            sick_ids = [i for i in sick_ans.ids_train if i in ids_one_diff]
-
-        # test one or more problems
-        elif self.sick_id[0] != "all":
-            sick_ids = [int(i) for i in self.sick_id if int(i) in self.sick2uniq]
-
-        # all problems
-        else:
-            sick_ids = sorted(self.sick2uniq)
-
         self.solveSick_helper(sick_ids, trees)
 
         print("\n\n--- %s seconds ---" % (time.time() - start_time))
 
-    def solveSick_helper(self, sick_ids, trees):
-        """ sick_id: a list of ids to solve """
+    def solve_helper(self, ids, trees):
+        """ ids: a list of ids to solve """
         y_pred = []
 
         fout = None
@@ -208,7 +143,7 @@ class SICK_solver:
         if save_sents:
             fout = open("sick_trees_polarized.csv", "w")
 
-        for id_to_solve in sick_ids:
+        for id_to_solve in ids:
             # only print P and H
             # ans = self.solveSick_one(id_to_solve, trees, reverse=False, fout=fout)
             # continue
@@ -218,7 +153,7 @@ class SICK_solver:
             #     y_pred.append("U")
             #     continue
             ans = self.map_ans(
-                self.solveSick_one(id_to_solve, trees, reverse=False, fout=fout)
+                self.solve_one(id_to_solve, trees, reverse=False, fout=fout)
             )
             # if the ans is "U", try going from hypothesis to premise, see if get "C"
             if not self.gen_inf:  # if not only generate infs and contras
@@ -245,8 +180,8 @@ class SICK_solver:
         if save_sents:
             fout.close()
 
-    def solveSick_one(self, id_to_solve, trees, reverse=False, fout=None):
-        """solve sick problem #sick_id
+    def solve_one(self, id_to_solve, trees, reverse=False, fout=None):
+        """solve problem #id
         steps:
             1. read in parsed Ps and H
             2. initialize knowledge base K, update K when reading in Ps and H
@@ -268,24 +203,6 @@ class SICK_solver:
         else:
             P = trees.build_one_tree(self.H_idx(id_to_solve), "easyccg", use_lemma)
             H = trees.build_one_tree(self.P_idx(id_to_solve), "easyccg", use_lemma)
-
-        # just print P, H
-        # print("{}\t{}\t{}".format(id_to_solve, P.printSent_raw_no_pol(stream=sys.stderr).strip(), H.printSent_raw_no_pol(stream=sys.stderr)))
-        # return
-
-        # -----------------------------
-        # passive to active
-        # my_act = self.p2a.pass2act(P.printSent_raw_no_pol(stream=sys.stdout, verbose=False))
-        # my_act = my_act.rstrip('. ').upper()
-        # print('active:')
-        # print(my_act)
-        # if my_act == H.printSent_raw_no_pol(stream=sys.stdout, verbose=False).strip().upper():
-        #     ans = "E_pass"
-        #     print('active = passive')
-        #     print('\n*** decision ***')
-        #     print('y_pred:', ans)
-        #     print('y_true:', self.ANSWERS[id_to_solve])
-        #     return ans
 
         # -----------------------------
         # initialize s
@@ -315,8 +232,6 @@ class SICK_solver:
         # -----------------------------
         k.build_manual_for_sick()
         mywordnet.assign_all_relations_wordnet(k)
-        if self.gen_inf:  # todo: not implemented??
-            mywordnet.add_alternations(sent_id=id_to_solve, nlp=self.nlp, k=k)
         # -----------------------------
 
         k.update_modifier()  # adj + n < n, n + RC/PP < n, v + PP < v
@@ -409,26 +324,6 @@ class SICK_solver:
                 )
 
         return ans
-
-    def accuracy(self, ids, y_pred, y_true):
-        """ compuate accuracy. pred and gold are lists """
-        assert len(ids) == len(y_pred) == len(y_true)
-        correct = 0
-        incorrect = []
-        print("\npred true no.")
-        for i in range(len(y_pred)):
-            if y_pred[i] == y_true[i]:
-                correct += 1
-            else:
-                incorrect.append((ids[i], y_pred[i], y_true[i]))
-            print(y_pred[i], y_true[i], ids[i])
-        print("\nconfusion matrix")
-        print(confusion_matrix(y_true, y_pred, labels=["E", "U", "C"]))
-        print()
-        print("incorrect predictions:\nid, pred, truth")
-        for i in incorrect:
-            print(i)
-        return round(correct / len(y_pred), 5)
 
     def map_ans(self, ans):
         """ change errors to Neutral """
